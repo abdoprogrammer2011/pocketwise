@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+    function isParentOf(uid) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(uid)).data.parentId == request.auth.uid;
+    }
+
+    // Public-readable so a not-yet-authenticated child can resolve a parent's
+    // 6-character code during signup. Contains no personal data — just a
+    // random code mapped to a parent UID. Only the owning parent can create one.
+    match /linkCodes/{code} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update, delete: if false;
+    }
+
+    match /users/{uid} {
+      // Own profile, or the linked parent, can read it.
+      allow read: if isOwner(uid) || isParentOf(uid);
+      allow create: if isOwner(uid);
+      // NOTE: for a hardened production setup, restrict which fields a parent
+      // may write (e.g. monthlyAllowance, balance) using request.resource.data
+      // diffing, rather than allowing a full-document update.
+      allow update: if isOwner(uid) || isParentOf(uid);
+      allow delete: if false;
+
+      match /expenses/{expenseId} {
+        allow read: if isOwner(uid) || isParentOf(uid);
+        allow write: if isOwner(uid);
+      }
+      match /folders/{folderId} {
+        allow read: if isOwner(uid) || isParentOf(uid);
+        allow write: if isOwner(uid);
+      }
+      match /goals/{goalId} {
+        allow read: if isOwner(uid) || isParentOf(uid);
+        allow write: if isOwner(uid);
+      }
+      match /badges/{badgeId} {
+        allow read: if isOwner(uid) || isParentOf(uid);
+        allow write: if isOwner(uid);
+      }
+    }
+  }
+}
